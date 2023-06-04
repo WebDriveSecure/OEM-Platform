@@ -7,10 +7,13 @@ Modern cars are rapidly embracing autonomous and eco-friendly functionalities li
 ## Solution
 To solve this problem above is a solution that work in tandem with
 
-'''mermaid
-graph LR;
-    A[OEM] --> B[Hashgraph]
-'''
+```mermaid
+  graph LR;
+      A[OEM] -- Secret Update Info--> B[Hashgraph];
+      A[OEM] -- Encrypted Update--> C[IPFS];
+      B[Hashgraph] -- Secret Update Info--> D[Vehicle];
+      C[IPFS] -- Encrypted Update--> D[Vehicle];
+```
 
 ## Demo
 
