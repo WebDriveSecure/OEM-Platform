@@ -8,3 +8,7 @@ node_modules
 !.env.example
 vite.config.js.timestamp-*
 vite.config.ts.timestamp-*
+!/src/stores/hederaStores.js
+!/src/stores/storageStores.js
+src/stores/hederaStores.js
+src/stores/storageStores.js
