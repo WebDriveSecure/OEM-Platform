@@ -1,77 +1,88 @@
 <script>
     import {Web3Storage} from 'web3.storage'
     import {web3StorageToken} from "../stores/storageStores.js";
-    // import crypto from 'crypto';
+    import CryptoJS from 'crypto-js';
 
     let fileVar;
+    let files;
+    let encryptedFile;
+    let encryptedBlob;
 
-    async function submit() {
-        console.log("Submitted");
+    $: if (files) {
+        // Note that `files` is of type `FileList`, not an Array:
+        // https://developer.mozilla.org/en-US/docs/Web/API/FileList
+        console.log(files);
 
-        if (fileVar) {
-            // Encryption
-            // let iv = crypto.getRandomValues(new Uint8Array(12));
-            // console.log(iv);
-            // let key = crypto.subtle.generateKey(
-            //     {
-            //         name: "AES-GCM",
-            //         length: 256, //can be  128, 192, or 256
-            //     },
-            //     false, //whether the key is extractable (i.e. can be used in exportKey)
-            //     ["encrypt", "decrypt"] //can "encrypt", "decrypt", "wrapKey", or "unwrapKey"
-            // )
-            //     .then(function (key) {
-            //         //returns a key object
-            //         console.log(key);
-            //     })
-            //     .catch(function (err) {
-            //         console.error(err);
-            //     });
-            // let encryptedFile = await encryptFile(fileVar, iv, key);
-
-            // File Upload
-            await uploadFile(fileVar);
-        } else {
-            console.log('No file selected')
+        for (const file of files) {
+            console.log(`${file.name}: ${file.size} bytes`);
         }
     }
 
-    // async function encryptFile(file, iv, key) {
-    //     const reader = new FileReader();
-    //     const fileByteArray = [];
-    //     reader.readAsArrayBuffer(file);
-    //     reader.onloadend = function (evt) {
-    //         if (evt.target.readyState === FileReader.DONE) {
-    //             const arrayBuffer = evt.target.result,
-    //                 array = new Uint8Array(arrayBuffer);
-    //             for (let i = 0; i < array.length; i++) {
-    //                 fileByteArray.push(array[i]);
-    //             }
-    //         }
-    //     }
-    //     let encryptedFileArray;
-    //     crypto.subtle.encrypt(
-    //         {
-    //             name: "AES-GCM",
-    //             iv: iv,
-    //             tagLength: 128
-    //         },
-    //         key, //from generateKey or importKey above
-    //         fileByteArray //ArrayBuffer of data you want to encrypt
-    //     )
-    //         .then(function(encrypted){
-    //             //returns an ArrayBuffer containing the encrypted data
-    //             console.log(new Uint8Array(encrypted));
-    //             encryptedFileArray = encrypted;
-    //         })
-    //         .catch(function(err){
-    //             console.error(err);
-    //         });
-    //     // convert to file
-    //     return new File(encryptedFileArray, file.name, {type: file.type});
-    // }
+    // Encryption
+    async function encryptFile() {
+        const file = fileVar;
+        const password = "YourEncryptionPassword"; // Replace with your encryption password
 
-    async function uploadFile(file) {
+        if (!file) {
+            console.error("No file selected.");
+            return;
+        }
+
+        const reader = await new FileReader();
+        reader.onload = async () => {
+            try {
+                const fileData = reader.result;
+                const wordArray = await CryptoJS.lib.WordArray.create(fileData);
+
+                const encrypted = await CryptoJS.AES.encrypt(wordArray, password);
+                encryptedBlob = await new Blob([encrypted.toString()], {
+                    type: file.type, name: file.name
+                });
+
+                // Do further processing with the encrypted file
+                console.log("Encrypted Blob:", encryptedBlob);
+            } catch (error) {
+                console.error("Encryption failed:", error);
+            }
+        };
+
+        reader.onerror = (error) => {
+            console.error("File reading error:", error);
+        };
+
+        await reader.readAsArrayBuffer(file);
+    }
+
+    async function submit() {
+        console.log("Submitted");
+        if (files && files[0]) {
+            fileVar = files[0];
+            await encryptFile();
+            await waitForElement();
+        } else {
+            console.log("No file selected");
+        }
+    }
+
+    // Kinda of a hacky way to wait <- Need to find a better way
+    function waitForElement() {
+        if (typeof encryptedBlob !== "undefined") {
+            encryptedFile = new File([encryptedBlob], fileVar.name, {
+                type: fileVar.type, lastModified:
+                    fileVar.lastModified
+            });
+            console.log("Encrypted file:", encryptedFile);
+            console.log("Uploading file...");
+            uploadFile();
+        } else {
+            setTimeout(waitForElement, 250);
+        }
+    }
+
+
+    async function uploadFile() {
+        console.log("Encrypted file:", encryptedFile);
+
         const token = web3StorageToken
 
         if (!token) {
@@ -79,7 +90,7 @@
         }
 
         const storage = new Web3Storage({token})
-        const cid = await storage.put(file)
+        const cid = await storage.put([encryptedFile])
         console.log('Content added with CID:', cid)
     }
 
@@ -87,14 +98,21 @@
 
 <!--    Select File     -->
 <!--    Simple form that allows input of file   -->
-<h1>Welcome to GFG</h1>
+<h1>Welcome to File Upload</h1>
 <h2>How to upload files using HTML to website?</h2>
 <div>
-    <form on:submit={submit}>
-        <input
-                type="file"
-                bind:files={fileVar}/>
-        <br/>
-        <input type="submit"/>
-    </form>
+    <input
+            bind:files
+            id="file"
+            type="file"
+    />
+    <button on:click={submit}>Submit</button>
 </div>
+
+{#if files}
+    <h2>Selected files:</h2>
+    {#each Array.from(files) as file}
+        <p>{file.name} ({file.size} bytes) </p>
+    {/each}
+{/if}
+
