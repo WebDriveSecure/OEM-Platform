@@ -15,6 +15,7 @@
     }
 
 
+    // ToDo: Need to edit this function, implementation is a bit wack
     function waitForElement() {
         if (typeof decryptedBlob !== "undefined") {
             const decryptedFile = new File([decryptedBlob], encryptedFile.name, {
@@ -51,12 +52,12 @@
         }
     }
 
-    function downloadFile(fileObject, fileName) {
+    function downloadFile(fileObject) {
         const fileURL = URL.createObjectURL(fileObject);
 
         const link = document.createElement('a');
         link.href = fileURL;
-        link.download = fileName;
+        link.download = fileObject.name;
         document.body.appendChild(link);
         link.click();
         document.body.removeChild(link);
