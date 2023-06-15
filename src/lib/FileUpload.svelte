@@ -10,7 +10,7 @@
         ContractId,
         PrivateKey
     } from "@hashgraph/sdk";
-    import {CONTRACT_ID, MY_ACCOUNT_ID1, MY_PRIVATE_KEY1} from "$stores/hederaStores.js";
+    import {CONTRACT_ID, MY_ACCOUNT_ID1, MY_PRIVATE_KEY1} from "../stores/hederaStores.js";
 
     let fileVar;
     let files;
@@ -33,7 +33,7 @@
     // Encryption
     async function encryptFile() {
         const file = fileVar;
-        password = generateId(2048); // Replace with your encryption password
+        password = generateId(256); // Replace with your encryption password
         console.log(password);
 
         if (!file) {
@@ -47,7 +47,7 @@
                 const fileData = reader.result;
                 const wordArray = await CryptoJS.lib.WordArray.create(fileData);
 
-                const encrypted = await CryptoJS.AES.encrypt(wordArray, password);
+                const encrypted = CryptoJS.AES.encrypt(JSON.stringify(wordArray), password);//await CryptoJS.AES.encrypt(JSON.stringify({ wordArray }), password);
                 encryptedBlob = await new Blob([encrypted.toString()], {
                     type: file.type, name: file.name
                 });
@@ -107,6 +107,15 @@
         }
     }
 
+    function waitForFileUpload(){
+        if (typeof cid !== "undefined") {
+            uploadFileToHedera();
+            console.log("File uploaded");
+        } else {
+            setTimeout(waitForFileUpload, 250);
+        }
+    }
+
 
     async function uploadFile() {
         console.log("Encrypted file:", encryptedFile);
@@ -121,13 +130,13 @@
         cid = await storage.put([encryptedFile]);
         console.log("CID:", cid);
 
-        await uploadFileToHedera();
+        waitForFileUpload();
     }
 
     async function uploadFileToHedera() {
         const myAccountId = AccountId.fromString(MY_ACCOUNT_ID1);
         const myPrivateKey = PrivateKey.fromString(MY_PRIVATE_KEY1);
-        const OEM = Client.forTestnet.setOperator(myAccountId, myPrivateKey);
+        const OEM = Client.forTestnet().setOperator(myAccountId, myPrivateKey);
         const contract = ContractId.fromString(CONTRACT_ID);
         const contractUploadUpdate = new ContractExecuteTransaction()
             .setContractId(contract)

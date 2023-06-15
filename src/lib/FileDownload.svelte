@@ -1,17 +1,86 @@
 <script>
     import {Web3Storage} from 'web3.storage'
     import {web3StorageToken} from "../stores/storageStores.js";
+    import {CONTRACT_ID, MY_ACCOUNT_ID2, MY_PRIVATE_KEY2} from "../stores/hederaStores.js";
     import CryptoJS from 'crypto-js';
+    import {
+        AccountId,
+        Client,
+        ContractCallQuery,
+        ContractExecuteTransaction,
+        ContractFunctionParameters,
+        ContractId,
+        PrivateKey
+    } from "@hashgraph/sdk";
 
-    let files;
     let encryptedFile;
     let decryptedBlob;
+    let key;
+    let checksum;
+    let cid;
+    const MODEL_AId = AccountId.fromString(MY_ACCOUNT_ID2);
+    const MODEL_AKey = PrivateKey.fromString(MY_PRIVATE_KEY2);
+    const MODEL_A = Client.forTestnet().setOperator(MODEL_AId, MODEL_AKey);
+    const contract = ContractId.fromString(CONTRACT_ID);
 
     async function submit() {
+        const contractHasUpdate = new ContractCallQuery()
+            .setContractId(contract)
+            .setGas(100000)
+            .setFunction("hasUpdate", new ContractFunctionParameters().addUint8(1));
+        const contractHasUpdateResponse = await contractHasUpdate.execute(MODEL_A);
+        const modelAHasUpdate = contractHasUpdateResponse.getBool(0);
+        if (modelAHasUpdate) {
+            console.log("Update available");
+        } else {
+            console.log("No update available");
+            return;
+        }
+        // try {
+        //     await grabFileInfo();
+        //     await downloadFiles();
+        //     await decryptFile();
+        //     await waitForElement();
+        // } catch (error) {
+        //     const contractSendUpdateStatus = new ContractExecuteTransaction()
+        //         .setContractId(contract)
+        //         .setGas(1000000)
+        //         .setFunction("updateUpdateStatus", new ContractFunctionParameters().addUint8(1).addBool(false));
+        //     const contractSendUpdateStatusResponse = await contractSendUpdateStatus.execute(MODEL_A);
+        //     const contractSendUpdateStatusReceipt = await contractSendUpdateStatusResponse.getReceipt(MODEL_A);
+        //     console.log("Update Failed");
+        //     throw new Error("Update Failed");
+        // }
+        // const contractSendUpdateStatus = new ContractExecuteTransaction()
+        //     .setContractId(contract)
+        //     .setGas(1000000)
+        //     .setFunction("updateUpdateStatus", new ContractFunctionParameters().addUint8(1).addBool(true));
+        // const contractSendUpdateStatusResponse = await contractSendUpdateStatus.execute(MODEL_A);
+        // const contractSendUpdateStatusReceipt = await contractSendUpdateStatusResponse.getReceipt(MODEL_A);
+        // console.log("Update Complete");
+        await grabFileInfo();
         await downloadFiles();
         await decryptFile();
-
         await waitForElement();
+    }
+
+    async function grabFileInfo() {
+        const contractGetUpdate = new ContractCallQuery()
+            .setContractId(contract)
+            .setGas(100000)
+            .setFunction("fetchUpdate", new ContractFunctionParameters().addUint8(1));
+        const contractGetUpdateResponse = await contractGetUpdate.execute(MODEL_A);
+        const modelAKey = contractGetUpdateResponse.getString(0);
+        console.log("Update Key:", modelAKey)
+        const modelAChecksum = contractGetUpdateResponse.getString(1);
+        console.log("Update Checksum:", modelAChecksum)
+        const modelACID = contractGetUpdateResponse.getString(2);
+        console.log("Update CID:", modelACID)
+        const modelAUpdateVersion = contractGetUpdateResponse.getString(3);
+        console.log("Update Version:", modelAUpdateVersion);
+        key = modelAKey;
+        checksum = modelAChecksum;
+        cid = modelACID;
     }
 
 
@@ -41,13 +110,12 @@
         }
 
         const storage = new Web3Storage({token})
-        const cid = "bafybeibsjzmj56folulqfyatyrf5mr7bp3hgnu62z2psh36ptt4fqvye7i";
         const res = await storage.get(cid)
         const files = await res.files()
         encryptedFile = files[0];
         for (const file of files) {
             console.log(`${file.cid} -- ${file.path} -- ${file.size}`)
-            // donwload file
+            // download file
             // downloadFile(file, "Hello World.txt")
         }
     }
@@ -67,7 +135,7 @@
     }
 
     function decryptFile() {
-        const password = "YourEncryptionPassword"; // Replace with your encryption password
+        const password = key; // Replace with your encryption password
 
         if (!encryptedFile) {
             console.error("No encrypted file available.");
@@ -77,8 +145,9 @@
         const reader = new FileReader();
         reader.onload = () => {
             try {
-                const decrypted = CryptoJS.AES.decrypt(reader.result, password);
+                const decrypted = CryptoJS.AES.decrypt(reader.result.toString(), key);//CryptoJS.AES.decrypt(reader.result, password);
                 const decryptedData = decrypted.toString(CryptoJS.enc.Utf8);
+
 
                 decryptedBlob = new Blob([decryptedData], {
                     type: encryptedFile.type.replace('.enc', ''),
