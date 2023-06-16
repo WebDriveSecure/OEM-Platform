@@ -14,11 +14,6 @@
 
     let fileVar;
     let files;
-    let encryptedFile;
-    let encryptedBlob;
-    let password;
-    let cid;
-    let checksum = "Place Holder";
 
     $: if (files) {
         // Note that `files` is of type `FileList`, not an Array:
@@ -31,40 +26,7 @@
     }
 
     // Encryption
-    async function encryptFile() {
-        const file = fileVar;
-        password = generateId(256); // Replace with your encryption password
-        console.log(password);
 
-        if (!file) {
-            console.error("No file selected.");
-            return;
-        }
-
-        const reader = await new FileReader();
-        reader.onload = async () => {
-            try {
-                const fileData = reader.result;
-                const wordArray = await CryptoJS.lib.WordArray.create(fileData);
-
-                const encrypted = CryptoJS.AES.encrypt(JSON.stringify(wordArray), password);//await CryptoJS.AES.encrypt(JSON.stringify({ wordArray }), password);
-                encryptedBlob = await new Blob([encrypted.toString()], {
-                    type: file.type, name: file.name
-                });
-
-                // Do further processing with the encrypted file
-                console.log("Encrypted Blob:", encryptedBlob);
-            } catch (error) {
-                console.error("Encryption failed:", error);
-            }
-        };
-
-        reader.onerror = (error) => {
-            console.error("File reading error:", error);
-        };
-
-        await reader.readAsArrayBuffer(file);
-    }
 
 
     // dec2hex :: Integer -> String
@@ -72,6 +34,26 @@
     function dec2hex(dec) {
         return dec.toString(16).padStart(2, "0")
     }
+
+    // Function to calculate the checksum of a File object
+    function calculateChecksum(file) {
+        return new Promise((resolve, reject) => {
+            const reader = new FileReader();
+
+            reader.onload = function() {
+                const wordArray = CryptoJS.lib.WordArray.create(reader.result);
+                const checksum = CryptoJS.SHA256(wordArray).toString();
+                resolve(checksum);
+            };
+
+            reader.onerror = function(error) {
+                reject(error);
+            };
+
+            reader.readAsArrayBuffer(file);
+        });
+    }
+
 
 
     // generateId :: Integer -> String
@@ -81,27 +63,73 @@
         return Array.from(arr, dec2hex).join('')
     }
 
+    // Function to derive an AES key from a password using PBKDF2
+    async function deriveKeyFromPassword(password) {
+        const encoder = new TextEncoder();
+        const passwordData = encoder.encode(password);
+        const importedKey = await crypto.subtle.importKey('raw', passwordData, 'PBKDF2', false, ['deriveBits']);
+        const keyMaterial = await crypto.subtle.deriveBits(
+            {
+                name: 'PBKDF2',
+                salt: encoder.encode("Hello World"),
+                iterations: 100000,
+                hash: 'SHA-256',
+            },
+            importedKey,
+            128 // 256-bit key length
+        );
+        const keyData = new Uint8Array(keyMaterial);
+        return keyData.slice(0, 32); // Truncate to 256 bits (32 bytes)
+    }
+
+    async function uint8ArrayToBits(uint8Array) {
+        let bits = '';
+        for (let i = 0; i < uint8Array.length; i++) {
+            const byte = uint8Array[i];
+            const byteBits = byte.toString(2).padStart(8, '0'); // Convert byte to binary string
+            bits += byteBits;
+        }
+        return bits;
+    }
+
     async function submit() {
         console.log("Submitted");
         if (files && files[0]) {
             fileVar = files[0];
-            await encryptFile();
-            await waitForElement();
+            const checksum = await calculateChecksum(fileVar);
+            console.log("Checksum:", checksum);
+            const key = await deriveKeyFromPassword(generateId(20));
+            console.log("Key:", key);
+            const encryptedFile = await encryptFile(fileVar, key);
+            const cid = await uploadFile(encryptedFile);
+            console.log("CID:", cid);
         } else {
             console.log("No file selected");
         }
     }
 
+    // Function to convert a string to an ArrayBuffer
+    function stringToArrayBuffer(str) {
+        const encoder = new TextEncoder();
+        return encoder.encode(str);
+    }
+
+    // Function to encrypt a file using a symmetric key
+    async function encryptFile(file, key) {
+        console.log(key);
+        const fileData = await file.arrayBuffer();
+        const cryptoKey = await crypto.subtle.importKey('raw', key, 'AES-GCM', false, ['encrypt']);
+        const iv = crypto.getRandomValues(new Uint8Array(12));
+        const encryptedData = await crypto.subtle.encrypt({ name: 'AES-GCM', iv }, cryptoKey, fileData);
+        return new Blob([iv, encryptedData], { type: file.type, name: file.name });
+    }
+
     // Kinda of a hacky way to wait <- Need to find a better way
-    function waitForElement() {
-        if (typeof encryptedBlob !== "undefined") {
-            encryptedFile = new File([encryptedBlob], fileVar.name, {
-                type: fileVar.type, lastModified:
-                fileVar.lastModified
-            });
+    function waitForElement(encryptedFile) {
+        if (typeof encryptedFile !== "undefined") {
             console.log("Encrypted file:", encryptedFile);
             console.log("Uploading file...");
-            uploadFile();
+            return uploadFile();
         } else {
             setTimeout(waitForElement, 250);
         }
@@ -117,7 +145,7 @@
     }
 
 
-    async function uploadFile() {
+    async function uploadFile(encryptedFile) {
         console.log("Encrypted file:", encryptedFile);
 
         const token = web3StorageToken
@@ -126,11 +154,12 @@
             return console.error('A token is needed. You can create one on https://web3.storage')
         }
 
-        const storage = new Web3Storage({token});
-        cid = await storage.put([encryptedFile]);
-        console.log("CID:", cid);
+        const arrayBuffer = await encryptedFile.arrayBuffer();
+        const fileData = new Uint8Array(arrayBuffer);
 
-        waitForFileUpload();
+        const storage = await new Web3Storage({token});
+        return await storage.put([encryptedFile], {
+            wrapWithDirectory: false});
     }
 
     async function uploadFileToHedera() {

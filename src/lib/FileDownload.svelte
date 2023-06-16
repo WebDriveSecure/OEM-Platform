@@ -2,7 +2,6 @@
     import {Web3Storage} from 'web3.storage'
     import {web3StorageToken} from "../stores/storageStores.js";
     import {CONTRACT_ID, MY_ACCOUNT_ID2, MY_PRIVATE_KEY2} from "../stores/hederaStores.js";
-    import CryptoJS from 'crypto-js';
     import {
         AccountId,
         Client,
@@ -13,7 +12,6 @@
         PrivateKey
     } from "@hashgraph/sdk";
 
-    let encryptedFile;
     let decryptedBlob;
     let key;
     let checksum;
@@ -82,6 +80,7 @@
         checksum = modelAChecksum;
         cid = modelACID;
     }
+
 
 
     // ToDo: Need to edit this function, implementation is a bit wack
