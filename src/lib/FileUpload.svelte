@@ -24,11 +24,7 @@
             console.log(`${file.name}: ${file.size} bytes`);
         }
     }
-
-    // Encryption
-
-
-
+    
     // dec2hex :: Integer -> String
     // i.e. 0-255 -> '00'-'ff'
     function dec2hex(dec) {
@@ -53,7 +49,6 @@
             reader.readAsArrayBuffer(file);
         });
     }
-
 
 
     // generateId :: Integer -> String
@@ -82,16 +77,6 @@
         return keyData.slice(0, 32); // Truncate to 256 bits (32 bytes)
     }
 
-    async function uint8ArrayToBits(uint8Array) {
-        let bits = '';
-        for (let i = 0; i < uint8Array.length; i++) {
-            const byte = uint8Array[i];
-            const byteBits = byte.toString(2).padStart(8, '0'); // Convert byte to binary string
-            bits += byteBits;
-        }
-        return bits;
-    }
-
     async function submit() {
         console.log("Submitted");
         if (files && files[0]) {
@@ -103,16 +88,12 @@
             const encryptedFile = await encryptFile(fileVar, key);
             const cid = await uploadFile(encryptedFile);
             console.log("CID:", cid);
+            await uploadFileToHedera(checksum, key, cid);
         } else {
             console.log("No file selected");
         }
     }
 
-    // Function to convert a string to an ArrayBuffer
-    function stringToArrayBuffer(str) {
-        const encoder = new TextEncoder();
-        return encoder.encode(str);
-    }
 
     // Function to encrypt a file using a symmetric key
     async function encryptFile(file, key) {
@@ -122,26 +103,6 @@
         const iv = crypto.getRandomValues(new Uint8Array(12));
         const encryptedData = await crypto.subtle.encrypt({ name: 'AES-GCM', iv }, cryptoKey, fileData);
         return new Blob([iv, encryptedData], { type: file.type, name: file.name });
-    }
-
-    // Kinda of a hacky way to wait <- Need to find a better way
-    function waitForElement(encryptedFile) {
-        if (typeof encryptedFile !== "undefined") {
-            console.log("Encrypted file:", encryptedFile);
-            console.log("Uploading file...");
-            return uploadFile();
-        } else {
-            setTimeout(waitForElement, 250);
-        }
-    }
-
-    function waitForFileUpload(){
-        if (typeof cid !== "undefined") {
-            uploadFileToHedera();
-            console.log("File uploaded");
-        } else {
-            setTimeout(waitForFileUpload, 250);
-        }
     }
 
 
@@ -162,7 +123,7 @@
             wrapWithDirectory: false});
     }
 
-    async function uploadFileToHedera() {
+    async function uploadFileToHedera(checksum, key, cid) {
         const myAccountId = AccountId.fromString(MY_ACCOUNT_ID1);
         const myPrivateKey = PrivateKey.fromString(MY_PRIVATE_KEY1);
         const OEM = Client.forTestnet().setOperator(myAccountId, myPrivateKey);
@@ -171,7 +132,7 @@
             .setContractId(contract)
             .setGas(1000000)
             .setFunction("addUpdate",
-                new ContractFunctionParameters().addString(password).addString(checksum).addString(cid).addString("Version 2").addUint8(1));
+                new ContractFunctionParameters().addString(key).addString(checksum).addString(cid).addString("Version 2").addUint8(1));
         const txResponse = await contractUploadUpdate.execute(OEM);
         const receipt = await txResponse.getReceipt(OEM);
         console.log("The transaction consensus status " + receipt.status.toString());
