@@ -24,7 +24,7 @@
             console.log(`${file.name}: ${file.size} bytes`);
         }
     }
-    
+
     // dec2hex :: Integer -> String
     // i.e. 0-255 -> '00'-'ff'
     function dec2hex(dec) {
@@ -114,9 +114,6 @@
         if (!token) {
             return console.error('A token is needed. You can create one on https://web3.storage')
         }
-
-        const arrayBuffer = await encryptedFile.arrayBuffer();
-        const fileData = new Uint8Array(arrayBuffer);
 
         const storage = await new Web3Storage({token});
         return await storage.put([encryptedFile], {

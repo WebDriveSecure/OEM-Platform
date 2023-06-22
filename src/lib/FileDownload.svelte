@@ -8,11 +8,11 @@
         ContractCallQuery,
         ContractExecuteTransaction,
         ContractFunctionParameters,
-        ContractId,
+        ContractId, Key,
         PrivateKey
     } from "@hashgraph/sdk";
+    import CryptoJS from "crypto-js";
 
-    let decryptedBlob;
     let key;
     let checksum;
     let cid;
@@ -57,9 +57,30 @@
         // const contractSendUpdateStatusReceipt = await contractSendUpdateStatusResponse.getReceipt(MODEL_A);
         // console.log("Update Complete");
         await grabFileInfo();
-        await downloadFiles();
-        await decryptFile();
-        await waitForElement();
+        const encryptedFile = await downloadFiles(cid);
+        key = await deriveKeyFromPassword(key);
+        console.log("Key:", key);
+        const decryptedFile = await decryptFile(encryptedFile, key);
+        console.log("Decrypted file:", decryptedFile);
+        await downloadFile(decryptedFile);
+    }
+
+    async function deriveKeyFromPassword(password) {
+        const encoder = new TextEncoder();
+        const passwordData = encoder.encode(password);
+        const importedKey = await crypto.subtle.importKey('raw', passwordData, 'PBKDF2', false, ['deriveBits']);
+        const keyMaterial = await crypto.subtle.deriveBits(
+            {
+                name: 'PBKDF2',
+                salt: encoder.encode("Hello World"),
+                iterations: 100000,
+                hash: 'SHA-256',
+            },
+            importedKey,
+            128 // 256-bit key length
+        );
+        const keyData = new Uint8Array(keyMaterial);
+        return keyData.slice(0, 32); // Truncate to 256 bits (32 bytes)
     }
 
     async function grabFileInfo() {
@@ -82,41 +103,41 @@
     }
 
 
-
-    // ToDo: Need to edit this function, implementation is a bit wack
-    function waitForElement() {
-        if (typeof decryptedBlob !== "undefined") {
-            const decryptedFile = new File([decryptedBlob], encryptedFile.name, {
-                type: encryptedFile.type, lastModified:
-                encryptedFile.lastModified
-            });
-            console.log("Decrypted file:", decryptedFile);
-            console.log("Downloading file...");
-            downloadFile(decryptedFile, "Hello World.txt");
-        } else {
-            setTimeout(waitForElement, 250);
-        }
-    }
-
-
-    async function downloadFiles() {
+    async function downloadFiles(cid) {
         console.log("Downloading files");
-
         const token = web3StorageToken
-
         if (!token) {
             return console.error('A token is needed. You can create one on https://web3.storage')
         }
-
         const storage = new Web3Storage({token})
         const res = await storage.get(cid)
         const files = await res.files()
-        encryptedFile = files[0];
         for (const file of files) {
             console.log(`${file.cid} -- ${file.path} -- ${file.size}`)
-            // download file
-            // downloadFile(file, "Hello World.txt")
         }
+
+        const file = files[0];
+        const stream = await file.stream();
+        return await streamToBlob(stream);
+    }
+
+    async function streamToBlob(stream) {
+        const reader = stream.getReader();
+        const chunks = [];
+        let length = 0;
+
+        while (true) {
+            const { done, value } = await reader.read();
+
+            if (done) {
+                break;
+            }
+
+            chunks.push(value);
+            length += value.length;
+        }
+
+        return new Blob(chunks, { type: 'application/octet-stream' });
     }
 
     function downloadFile(fileObject) {
@@ -133,37 +154,19 @@
         URL.revokeObjectURL(fileURL);
     }
 
-    function decryptFile() {
-        const password = key; // Replace with your encryption password
-
-        if (!encryptedFile) {
-            console.error("No encrypted file available.");
-            return;
-        }
-
-        const reader = new FileReader();
-        reader.onload = () => {
-            try {
-                const decrypted = CryptoJS.AES.decrypt(reader.result.toString(), key);//CryptoJS.AES.decrypt(reader.result, password);
-                const decryptedData = decrypted.toString(CryptoJS.enc.Utf8);
-
-
-                decryptedBlob = new Blob([decryptedData], {
-                    type: encryptedFile.type.replace('.enc', ''),
-                });
-
-                // Use the decrypted file as needed (e.g., display, download, etc.)
-                console.log("Decrypted Blob:", decryptedBlob);
-            } catch (error) {
-                console.error("Decryption failed:", error);
-            }
-        };
-
-        reader.onerror = (error) => {
-            console.error("File reading error:", error);
-        };
-
-        reader.readAsText(encryptedFile);
+    async function decryptFile(file, key) {
+        const fileData = await file.arrayBuffer();
+        const cryptoKey = await crypto.subtle.importKey('raw', key, 'AES-GCM', false, ['decrypt']);
+        console.log("Key Created");
+        const iv = await fileData.slice(0, 12);
+        console.log("IV:", iv);
+        const encryptedData = await fileData.slice(12);
+        console.log("Encrypted Data:", encryptedData);
+        const decryptedData = await crypto.subtle.decrypt({ name: 'AES-GCM', iv }, cryptoKey, encryptedData);
+        console.log("Decrypted Data:", decryptedData);
+        const decryptedFile = await new Blob([decryptedData], { type: file.type, name: file.name });
+        console.log("Decrypted File:", decryptedFile);
+        return decryptedFile;
     }
 
 </script>
