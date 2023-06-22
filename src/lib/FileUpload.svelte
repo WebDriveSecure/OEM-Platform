@@ -83,15 +83,56 @@
             fileVar = files[0];
             const checksum = await calculateChecksum(fileVar);
             console.log("Checksum:", checksum);
-            const key = await deriveKeyFromPassword(generateId(20));
-            console.log("Key:", key);
-            const encryptedFile = await encryptFile(fileVar, key);
-            const cid = await uploadFile(encryptedFile);
+            const password = await deriveKeyFromPassword(generateId(20));
+            console.log("Key:", password);
+            const encryptedFile = await encryptFile(fileVar, password);
+            const cid = await uploadFileToWeb3Storage(encryptedFile);
             console.log("CID:", cid);
-            await uploadFileToHedera(checksum, key, cid);
+            await uploadFileToHedera(checksum, password, cid);
         } else {
             console.log("No file selected");
         }
+    }
+
+    function generateRandomIV() {
+        const iv = new Uint8Array(12);
+        window.crypto.getRandomValues(iv);
+        return iv;
+    }
+
+    async function generateEncryptionKey(rawKey) {
+        const algorithm = { name: 'AES-GCM', length: 256 };
+        const extractable = false;
+        const keyUsage = ['encrypt'];
+        return window.crypto.subtle.importKey('raw', rawKey.slice(0, 32), algorithm, extractable, keyUsage);
+    }
+
+    // Function to encrypt a file using AES-GCM
+    // async function encryptFile(file, key) {
+    //     const algorithm = 'AES-GCM';
+    //     const iv = generateRandomIV();
+    //     const encryptionKey = await generateEncryptionKey(key);
+    //     const cipher = window.crypto.subtle.encrypt({ name: algorithm, iv }, encryptionKey, file);
+    //     const encryptedData = await cipher;
+    //     const encryptedArray = new Uint8Array(encryptedData);
+    //     const encryptedFile = new Blob([iv, encryptedArray]);
+    //     return encryptedFile;
+    // }
+
+    // Web3.Storage upload function
+    async function uploadFileToWeb3Storage(file) {
+        const endpoint = 'https://api.web3.storage';
+
+        const response = await fetch(`${endpoint}/upload`, {
+            method: 'POST',
+            headers: {
+                Authorization: `Bearer ${web3StorageToken}`,
+            },
+            body: file,
+        });
+
+        const data = await response.json();
+        return data.cid;
     }
 
 
@@ -106,19 +147,19 @@
     }
 
 
-    async function uploadFile(encryptedFile) {
-        console.log("Encrypted file:", encryptedFile);
-
-        const token = web3StorageToken
-
-        if (!token) {
-            return console.error('A token is needed. You can create one on https://web3.storage')
-        }
-
-        const storage = await new Web3Storage({token});
-        return await storage.put([encryptedFile], {
-            wrapWithDirectory: false});
-    }
+    // async function uploadFile(encryptedFile) {
+    //     console.log("Encrypted file:", encryptedFile);
+    //
+    //     const token = web3StorageToken
+    //
+    //     if (!token) {
+    //         return console.error('A token is needed. You can create one on https://web3.storage')
+    //     }
+    //
+    //     const storage = await new Web3Storage({token});
+    //     return await storage.put([encryptedFile], {
+    //         wrapWithDirectory: false});
+    // }
 
     async function uploadFileToHedera(checksum, key, cid) {
         const myAccountId = AccountId.fromString(MY_ACCOUNT_ID1);
