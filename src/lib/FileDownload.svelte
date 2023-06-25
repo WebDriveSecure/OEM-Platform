@@ -57,13 +57,30 @@
         // const contractSendUpdateStatusReceipt = await contractSendUpdateStatusResponse.getReceipt(MODEL_A);
         // console.log("Update Complete");
         await grabFileInfo();
-        const encryptedFile = await downloadFiles(cid);
-        key = await deriveKeyFromPassword(key);
+        const encryptedFile = await fetchEncryptedFile(cid);
         console.log("Key:", key);
         const decryptedFile = await decryptFile(encryptedFile, key);
-        console.log("Decrypted file:", decryptedFile);
+        console.log("File Decrypted");
         await downloadFile(decryptedFile);
     }
+
+    // async function deriveKeyFromPassword(password) {
+    //     const encoder = new TextEncoder();
+    //     const passwordData = encoder.encode(password);
+    //     const importedKey = await crypto.subtle.importKey('raw', passwordData, 'PBKDF2', false, ['deriveBits']);
+    //     const keyMaterial = await crypto.subtle.deriveBits(
+    //         {
+    //             name: 'PBKDF2',
+    //             salt: encoder.encode("Hello World"),
+    //             iterations: 100000,
+    //             hash: 'SHA-256',
+    //         },
+    //         importedKey,
+    //         128 // 256-bit key length
+    //     );
+    //     const keyData = new Uint8Array(keyMaterial);
+    //     return keyData.slice(0, 32); // Truncate to 256 bits (32 bytes)
+    // }
 
     async function deriveKeyFromPassword(password) {
         const encoder = new TextEncoder();
@@ -80,7 +97,7 @@
             128 // 256-bit key length
         );
         const keyData = new Uint8Array(keyMaterial);
-        return keyData.slice(0, 32); // Truncate to 256 bits (32 bytes)
+        return keyData.slice(0, 16); // Truncate to 256 bits (32 bytes)
     }
 
     async function grabFileInfo() {
@@ -102,71 +119,66 @@
         cid = modelACID;
     }
 
-
-    async function downloadFiles(cid) {
-        console.log("Downloading files");
-        const token = web3StorageToken
-        if (!token) {
-            return console.error('A token is needed. You can create one on https://web3.storage')
-        }
-        const storage = new Web3Storage({token})
-        const res = await storage.get(cid)
-        const files = await res.files()
-        for (const file of files) {
-            console.log(`${file.cid} -- ${file.path} -- ${file.size}`)
-        }
-
-        const file = files[0];
-        const stream = await file.stream();
-        return await streamToBlob(stream);
-    }
-
-    async function streamToBlob(stream) {
-        const reader = stream.getReader();
-        const chunks = [];
-        let length = 0;
-
-        while (true) {
-            const { done, value } = await reader.read();
-
-            if (done) {
-                break;
-            }
-
-            chunks.push(value);
-            length += value.length;
-        }
-
-        return new Blob(chunks, { type: 'application/octet-stream' });
-    }
-
-    function downloadFile(fileObject) {
-        const fileURL = URL.createObjectURL(fileObject);
-
+    // Function to download a file
+    function downloadFile(blob, fileName) {
         const link = document.createElement('a');
-        link.href = fileURL;
-        link.download = fileObject.name;
-        document.body.appendChild(link);
+        link.href = URL.createObjectURL(blob);
+        link.download = fileName;
         link.click();
-        document.body.removeChild(link);
-
-        // Revoke the object URL to free up memory
-        URL.revokeObjectURL(fileURL);
     }
+
+    // Function to decrypt a file using AES-GCM
+    // async function decryptFile(file, key) {
+    //     const algorithm = { name: 'AES-GCM', iv: file.slice(0, 12) };
+    //     const decryptionKey = await generateEncryptionKey(key);
+    //     const decryptedData = await window.crypto.subtle.decrypt(algorithm, decryptionKey, file.slice(12));
+    //     return new Blob([decryptedData]);
+    // }
+
+    // Function to fetch the encrypted file from web3.storage
+    async function fetchEncryptedFile(cid) {
+        const endpoint = 'https://api.web3.storage';
+        const response = await fetch(`${endpoint}/car/${cid}`);
+        if (!response.ok) {
+            throw new Error(`Failed to fetch file. Status: ${response.status}`);
+        }
+        return await response.blob();
+    }
+
+
+    /**
+    async function decryptFile(file, key) {
+        const encoder = new TextEncoder();
+        const keyData = encoder.encode(key);
+        const cryptoKey = await crypto.subtle.importKey('raw', keyData.slice(0, 16), 'AES-GCM', false, ['decrypt']);
+        console.log("Crypto Key:", cryptoKey);
+        const iv = new Uint8Array(await file.slice(0, 12).arrayBuffer());
+        console.log("IV:", iv);
+        const algorithm = { name: 'AES-GCM', iv };
+        const encryptedData = await file.slice(12).arrayBuffer();
+        console.log("Encrypted Data:", encryptedData);
+        try {
+            const decryptedData = await crypto.subtle.decrypt(algorithm, cryptoKey, encryptedData);
+            console.log("Decrypted Data:", decryptedData);
+            return new Blob([decryptedData]);
+        } catch (error) {
+            console.error("Decryption error:", error);
+            throw error;
+        }
+    } **/
 
     async function decryptFile(file, key) {
-        const fileData = await file.arrayBuffer();
-        const cryptoKey = await crypto.subtle.importKey('raw', key, 'AES-GCM', false, ['decrypt']);
-        console.log("Key Created");
-        const iv = await fileData.slice(0, 12);
-        console.log("IV:", iv);
-        const encryptedData = await fileData.slice(12);
-        console.log("Encrypted Data:", encryptedData);
-        const decryptedData = await crypto.subtle.decrypt({ name: 'AES-GCM', iv }, cryptoKey, encryptedData);
-        console.log("Decrypted Data:", decryptedData);
-        const decryptedFile = await new Blob([decryptedData], { type: file.type, name: file.name });
-        console.log("Decrypted File:", decryptedFile);
-        return decryptedFile;
+        const iv = CryptoJS.lib.WordArray.create(file.slice(0, 12));
+        const encryptedData = CryptoJS.lib.WordArray.create(file.slice(12));
+
+        const decryptedData = CryptoJS.AES.decrypt({ ciphertext: encryptedData }, key, {
+            iv: iv,
+            padding: CryptoJS.pad.NoPadding,
+            mode: CryptoJS.mode.GCM
+        });
+
+        const decryptedArrayBuffer = decryptedData.toString(CryptoJS.enc.Latin1).toArrayBuffer();
+        return new Blob([decryptedArrayBuffer]);
     }
 
 </script>

@@ -1,5 +1,4 @@
 <script>
-    import {Web3Storage} from 'web3.storage'
     import {web3StorageToken} from "../stores/storageStores.js";
     import CryptoJS from 'crypto-js';
     import {
@@ -14,6 +13,13 @@
 
     let fileVar;
     let files;
+    let model = "";
+    let version = "";
+    let models = [
+        {id: 1, text: `Model A`},
+        {id: 2, text: `Model B`},
+        {id: 3, text: `Model C`}
+    ];
 
     $: if (files) {
         // Note that `files` is of type `FileList`, not an Array:
@@ -36,13 +42,13 @@
         return new Promise((resolve, reject) => {
             const reader = new FileReader();
 
-            reader.onload = function() {
+            reader.onload = function () {
                 const wordArray = CryptoJS.lib.WordArray.create(reader.result);
                 const checksum = CryptoJS.SHA256(wordArray).toString();
                 resolve(checksum);
             };
 
-            reader.onerror = function(error) {
+            reader.onerror = function (error) {
                 reject(error);
             };
 
@@ -58,24 +64,6 @@
         return Array.from(arr, dec2hex).join('')
     }
 
-    // Function to derive an AES key from a password using PBKDF2
-    async function deriveKeyFromPassword(password) {
-        const encoder = new TextEncoder();
-        const passwordData = encoder.encode(password);
-        const importedKey = await crypto.subtle.importKey('raw', passwordData, 'PBKDF2', false, ['deriveBits']);
-        const keyMaterial = await crypto.subtle.deriveBits(
-            {
-                name: 'PBKDF2',
-                salt: encoder.encode("Hello World"),
-                iterations: 100000,
-                hash: 'SHA-256',
-            },
-            importedKey,
-            128 // 256-bit key length
-        );
-        const keyData = new Uint8Array(keyMaterial);
-        return keyData.slice(0, 32); // Truncate to 256 bits (32 bytes)
-    }
 
     async function submit() {
         console.log("Submitted");
@@ -83,28 +71,16 @@
             fileVar = files[0];
             const checksum = await calculateChecksum(fileVar);
             console.log("Checksum:", checksum);
-            const password = await deriveKeyFromPassword(generateId(20));
-            console.log("Key:", password);
-            const encryptedFile = await encryptFile(fileVar, password);
-            const cid = await uploadFileToWeb3Storage(encryptedFile);
+            const passwordData = generateId(20)
+            // const password = await deriveKeyFromPassword(passwordData);
+            console.log("Key:", passwordData);
+            const encryptedFile = await encryptFile(fileVar, passwordData);
+            const cid = await uploadFileToWeb3Storage(fileVar);
             console.log("CID:", cid);
-            await uploadFileToHedera(checksum, password, cid);
+            await uploadFileToHedera(checksum, passwordData, cid, model, version);
         } else {
             console.log("No file selected");
         }
-    }
-
-    function generateRandomIV() {
-        const iv = new Uint8Array(12);
-        window.crypto.getRandomValues(iv);
-        return iv;
-    }
-
-    async function generateEncryptionKey(rawKey) {
-        const algorithm = { name: 'AES-GCM', length: 256 };
-        const extractable = false;
-        const keyUsage = ['encrypt'];
-        return window.crypto.subtle.importKey('raw', rawKey.slice(0, 32), algorithm, extractable, keyUsage);
     }
 
     // Function to encrypt a file using AES-GCM
@@ -140,28 +116,16 @@
     async function encryptFile(file, key) {
         console.log(key);
         const fileData = await file.arrayBuffer();
-        const cryptoKey = await crypto.subtle.importKey('raw', key, 'AES-GCM', false, ['encrypt']);
+        const encoder = new TextEncoder();
+        const keyData = encoder.encode(key);
+        const cryptoKey = await crypto.subtle.importKey('raw', keyData.slice(0, 16), 'AES-GCM', false, ['encrypt']);
         const iv = crypto.getRandomValues(new Uint8Array(12));
-        const encryptedData = await crypto.subtle.encrypt({ name: 'AES-GCM', iv }, cryptoKey, fileData);
-        return new Blob([iv, encryptedData], { type: file.type, name: file.name });
+        const encryptedData = await crypto.subtle.encrypt({name: 'AES-GCM', iv}, cryptoKey, fileData);
+        return new Blob([iv, encryptedData], {type: file.type, name: file.name});
     }
 
 
-    // async function uploadFile(encryptedFile) {
-    //     console.log("Encrypted file:", encryptedFile);
-    //
-    //     const token = web3StorageToken
-    //
-    //     if (!token) {
-    //         return console.error('A token is needed. You can create one on https://web3.storage')
-    //     }
-    //
-    //     const storage = await new Web3Storage({token});
-    //     return await storage.put([encryptedFile], {
-    //         wrapWithDirectory: false});
-    // }
-
-    async function uploadFileToHedera(checksum, key, cid) {
+    async function uploadFileToHedera(checksum, key, cid, model, version) {
         const myAccountId = AccountId.fromString(MY_ACCOUNT_ID1);
         const myPrivateKey = PrivateKey.fromString(MY_PRIVATE_KEY1);
         const OEM = Client.forTestnet().setOperator(myAccountId, myPrivateKey);
@@ -170,7 +134,7 @@
             .setContractId(contract)
             .setGas(1000000)
             .setFunction("addUpdate",
-                new ContractFunctionParameters().addString(key).addString(checksum).addString(cid).addString("Version 2").addUint8(1));
+                new ContractFunctionParameters().addString(key).addString(checksum).addString(cid).addString(version).addUint8(model));
         const txResponse = await contractUploadUpdate.execute(OEM);
         const receipt = await txResponse.getReceipt(OEM);
         console.log("The transaction consensus status " + receipt.status.toString());
@@ -180,21 +144,45 @@
 
 <!--    Select File     -->
 <!--    Simple form that allows input of file   -->
-<h1>Welcome to File Upload</h1>
-<h2>How to upload files using HTML to website?</h2>
-<div>
+<h1>Welcome to WebDriveSecure</h1>
+<h2>Use this client to help upload files securely</h2>
+
+<form on:submit|preventDefault={submit}>
     <input
             bind:files
             id="file"
             type="file"
     />
-    <button on:click={submit}>Submit</button>
-</div>
 
-{#if files}
-    <h2>Selected files:</h2>
-    {#each Array.from(files) as file}
-        <p>{file.name} ({file.size} bytes) </p>
-    {/each}
-{/if}
+    <select value={model} on:change={() => (version = '')}>
+        {#each models as modelName}
+            <option value={modelName}>
+                {modelName.text}
+            </option>
+        {/each}
+    </select>
 
+    <input bind:value={version}/>
+
+    <button disabled={!version} type="submit"> Submit</button>
+</form>
+
+<style>
+    /* Style the input fields for the form so that each field is spaced out and everything is centered */
+    input[type=text], input[type=password] {
+        width: 100%;
+        padding: 15px;
+        margin: 5px 0 22px 0;
+        display: inline-block;
+        border: none;
+        background: #f1f1f1;
+    }
+
+    /* Add a background color when the inputs get focus */
+    input[type=text]:focus, input[type=password]:focus {
+        background-color: #ddd;
+        outline: none;
+    }
+    
+
+</style>
